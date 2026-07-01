@@ -1,28 +1,30 @@
 "use client";
-
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Nav } from "@/components/Nav";
 import { Hero } from "@/components/Hero";
 import { PaymentForm } from "@/components/PaymentForm";
 import { ProofViewer } from "@/components/ProofViewer";
 import { HowItWorks } from "@/components/HowItWorks";
-import { Nav } from "@/components/Nav";
 import { Footer } from "@/components/Footer";
-
-export type TxResult = {
-  txId: string;
-  commitment: string;
-  status: string;
-};
+import { StatusBar } from "@/components/StatusBar";
+import { api, HealthStatus } from "@/lib/api";
+import type { PaymentResult } from "@/lib/api";
 
 export default function Home() {
-  const [result, setResult] = useState<TxResult | null>(null);
+  const [result, setResult] = useState<PaymentResult | null>(null);
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+
+  useEffect(() => {
+    api.health().then(setHealth).catch(() => {});
+  }, []);
 
   return (
-    <main className="min-h-screen flex flex-col">
+    <main className="min-h-screen flex flex-col bg-navy-950">
       <Nav />
+      <StatusBar health={health} />
       <Hero />
-      <section id="pay" className="flex-1 py-24 px-4">
-        <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+      <section id="pay" className="flex-1 py-20 px-4">
+        <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
           <PaymentForm onSuccess={setResult} />
           <ProofViewer result={result} />
         </div>

@@ -1,14 +1,21 @@
 "use client";
+import { useState, useEffect } from "react";
+import { Send, Loader2, AlertCircle, CheckCircle2, Wallet } from "lucide-react";
+import { api, PaymentResult } from "@/lib/api";
+import { getConnectedAccount } from "@/lib/freighter";
 
-import { useState } from "react";
-import { Send, Loader2, AlertCircle } from "lucide-react";
-import type { TxResult } from "@/app/page";
+interface Props { onSuccess: (r: PaymentResult) => void }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+type Stage = "idle" | "proof" | "submit" | "settle" | "done" | "error";
 
-interface Props {
-  onSuccess: (result: TxResult) => void;
-}
+const STAGE_LABELS: Record<Stage, string> = {
+  idle:   "",
+  proof:  "Generating ZK proof…",
+  submit: "Submitting commitment on-chain…",
+  settle: "Settling with proof…",
+  done:   "Payment settled ✓",
+  error:  "",
+};
 
 export function PaymentForm({ onSuccess }: Props) {
   const [form, setForm] = useState({
@@ -17,120 +24,121 @@ export function PaymentForm({ onSuccess }: Props) {
     recipient: "",
     auditRef: "",
   });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [stage, setStage] = useState<string | null>(null);
+  const [stage, setStage]   = useState<Stage>("idle");
+  const [error, setError]   = useState<string | null>(null);
 
-  const stages = [
-    "Generating ZK proof…",
-    "Submitting commitment to Soroban…",
-    "Settling with proof…",
-    "Confirmed.",
-  ];
+  // Auto-fill address from connected wallet
+  useEffect(() => {
+    getConnectedAccount().then((acc) => {
+      if (acc?.publicKey) setForm((f) => ({ ...f, senderAddress: acc.publicKey }));
+    });
+  }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  const set = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
     setError(null);
   };
 
-  const handleSubmit = async () => {
+  const valid =
+    form.senderAddress.startsWith("G") &&
+    form.senderAddress.length === 56 &&
+    parseFloat(form.amount) > 0 &&
+    form.recipient.trim().length > 0 &&
+    form.auditRef.trim().length > 0;
+
+  const submit = async () => {
     setError(null);
-    setLoading(true);
-
-    for (const s of stages.slice(0, 3)) {
-      setStage(s);
-      await new Promise((r) => setTimeout(r, 600));
-    }
-
     try {
-      const res = await fetch(`${API_URL}/api/payments/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          senderAddress: form.senderAddress,
-          amount: Math.round(parseFloat(form.amount) * 10_000_000).toString(), // XLM → stroops
-          recipient: Buffer.from(form.recipient).toString("hex"),
-          auditRef: form.auditRef,
-        }),
+      setStage("proof");
+      await new Promise((r) => setTimeout(r, 400));
+      setStage("submit");
+      await new Promise((r) => setTimeout(r, 300));
+      setStage("settle");
+
+      const result = await api.submitPayment({
+        senderAddress: form.senderAddress,
+        amount: Math.round(parseFloat(form.amount) * 10_000_000).toString(),
+        recipient: form.recipient,
+        auditRef: form.auditRef,
       });
 
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error || "Unknown error");
-      }
-
-      const data: TxResult = await res.json();
-      setStage("Confirmed.");
-      await new Promise((r) => setTimeout(r, 500));
-      onSuccess(data);
+      setStage("done");
+      onSuccess(result);
     } catch (err: unknown) {
+      setStage("error");
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-      setStage(null);
     }
   };
 
-  const fields: { name: keyof typeof form; label: string; placeholder: string; type?: string }[] = [
-    { name: "senderAddress", label: "Sender Stellar address", placeholder: "G..." },
-    { name: "amount", label: "Amount (XLM)", placeholder: "10000.00", type: "number" },
-    { name: "recipient", label: "Recipient identifier", placeholder: "Institution BIC or address — hidden in proof" },
-    { name: "auditRef", label: "Audit reference", placeholder: "SWIFT ref / internal ID" },
-  ];
+  const busy = stage !== "idle" && stage !== "error" && stage !== "done";
+
+  const fields = [
+    { name: "senderAddress", label: "Sender Stellar address", placeholder: "G… (56 chars)", icon: <Wallet className="w-3.5 h-3.5" /> },
+    { name: "amount",        label: "Amount (XLM)",           placeholder: "10000.00",      type: "number" },
+    { name: "recipient",     label: "Recipient identifier",   placeholder: "Institution BIC, address, or ID — hidden in proof" },
+    { name: "auditRef",      label: "Audit reference",        placeholder: "SWIFT ref / internal transaction ID" },
+  ] as const;
 
   return (
     <div className="glass rounded-3xl p-8">
-      <div className="mb-8">
-        <h2 className="font-display text-2xl font-semibold text-white">New payment</h2>
-        <p className="text-slate-400 text-sm mt-1">
-          Amount and recipient are committed privately. Only you and the auditor can reveal them.
+      <div className="mb-7">
+        <h2 className="font-display text-2xl font-semibold text-white">New private payment</h2>
+        <p className="text-slate-400 text-sm mt-1.5 leading-relaxed">
+          Amount and recipient are committed privately. Only you and auditors can reveal them.
         </p>
       </div>
 
-      <div className="space-y-5">
+      <div className="space-y-4">
         {fields.map((f) => (
           <div key={f.name}>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5 font-mono uppercase tracking-wider">
+            <label className="block text-xs font-mono text-slate-500 mb-1.5 uppercase tracking-wider">
               {f.label}
             </label>
             <input
               name={f.name}
-              type={f.type || "text"}
+              type={(f as any).type || "text"}
               value={form[f.name]}
-              onChange={handleChange}
+              onChange={set}
               placeholder={f.placeholder}
-              className="w-full bg-navy-900 border border-slate-750 rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/20 transition-all font-mono"
+              disabled={busy}
+              className="w-full bg-navy-900 border border-slate-750 rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/20 transition-all font-mono disabled:opacity-50"
             />
           </div>
         ))}
       </div>
 
-      {error && (
-        <div className="mt-4 flex items-start gap-2 text-red-400 text-sm">
-          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-          {error}
+      {/* Stage indicator */}
+      {stage !== "idle" && stage !== "error" && (
+        <div className="mt-5 flex items-center gap-2.5">
+          {stage === "done"
+            ? <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            : <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />}
+          <span className={`text-sm font-mono ${stage === "done" ? "text-emerald-400" : "text-cyan-400"}`}>
+            {STAGE_LABELS[stage]}
+          </span>
         </div>
       )}
 
-      {stage && (
-        <div className="mt-5 flex items-center gap-2 text-cyan-400 text-sm font-mono">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          {stage}
+      {/* Error */}
+      {error && (
+        <div className="mt-4 flex items-start gap-2 text-red-400 text-sm bg-red-400/5 border border-red-400/20 rounded-xl px-4 py-3">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+          <span className="font-mono text-xs">{error}</span>
         </div>
       )}
 
       <button
-        onClick={handleSubmit}
-        disabled={loading || !form.senderAddress || !form.amount || !form.recipient || !form.auditRef}
-        className="mt-8 w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-cyan-400 text-navy-950 font-display font-semibold text-sm hover:bg-cyan-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all glow-cyan"
+        onClick={submit}
+        disabled={!valid || busy}
+        className="mt-7 w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-cyan-400 text-navy-950 font-display font-semibold text-sm hover:bg-cyan-300 disabled:opacity-40 disabled:cursor-not-allowed transition-all glow-cyan"
       >
-        {loading ? (
-          <Loader2 className="w-4 h-4 animate-spin" />
-        ) : (
-          <Send className="w-4 h-4" />
-        )}
-        {loading ? "Processing…" : "Send private payment"}
+        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+        {busy ? STAGE_LABELS[stage] : "Send private payment"}
       </button>
+
+      <p className="mt-4 text-center text-xs text-slate-600 font-mono">
+        Proof generated locally · commitment settled on Stellar testnet
+      </p>
     </div>
   );
 }
