@@ -1,27 +1,19 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Nav } from "@/components/Nav";
 import { Hero } from "@/components/Hero";
-import { PaymentForm } from "@/components/PaymentForm";
+import { PaymentForm, PaymentResult } from "@/components/PaymentForm";
 import { ProofViewer } from "@/components/ProofViewer";
 import { HowItWorks } from "@/components/HowItWorks";
 import { Footer } from "@/components/Footer";
 import { StatusBar } from "@/components/StatusBar";
-import { api, HealthStatus } from "@/lib/api";
-import type { PaymentResult } from "@/lib/api";
 
 export default function Home() {
   const [result, setResult] = useState<PaymentResult | null>(null);
-  const [health, setHealth] = useState<HealthStatus | null>(null);
-
-  useEffect(() => {
-    api.health().then(setHealth).catch(() => {});
-  }, []);
-
   return (
     <main className="min-h-screen flex flex-col bg-navy-950">
       <Nav />
-      <StatusBar health={health} />
+      <StatusBar />
       <Hero />
       <section id="pay" className="flex-1 py-20 px-4">
         <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
