@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Send, Loader2, AlertCircle, CheckCircle2, Wallet, ExternalLink } from "lucide-react";
-import { generateProofBundle, toHexStr } from "@/lib/zkp-browser";
+import { Send, Loader2, AlertCircle, CheckCircle2, Wallet } from "lucide-react";
+import { generateProofBundle } from "@/lib/zkp-browser";
 import { submitPrivatePayment } from "@/lib/stellar-browser";
 import { connectFreighter, getConnectedAccount } from "@/lib/freighter";
 
